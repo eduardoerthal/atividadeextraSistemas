@@ -1,46 +1,63 @@
-import java.nio.file.*;
-import java.util.List;
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
 
 public class Main {
-
-    public static int parseSizeKB(String token) {
-        token = token.trim();
-        int valor = Integer.parseInt(token);
-        return valor * 1024; // converte sempre para BYTES
-    }
-
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
+        String path = "data/programas.txt";
+        if (args != null && args.length > 0) {
+            path = args[0];
+        }
 
         Buddy buddy = new Buddy();
 
-        // busca e le meu arquivo de programas
-        List<String> lines = Files.readAllLines(Paths.get("data/programas.txt"));
-
-        int i = 0;
-        while (i < lines.size()) {
-
-            String line = lines.get(i).trim();
-            i = i + 1;
-
-            // comando para ignorar linhas em branco e comentarios que usei #
-            if (line.length() == 0) continue;
-            if (line.startsWith("#")) continue;
-
-            // pega programa + tamanho
-            String[] parts = line.split("\\s+");
-
-            String label = parts[0];      // A, B, C e etc..
-            int sizeBytes = parseSizeKB(parts[1]);
-
-            boolean ok = buddy.allocate(label, sizeBytes);
-
-            if (ok)
-                System.out.println(label + " alocado (" + sizeBytes + " bytes / " + (sizeBytes / 1024) + "KB)");
-            else
-                System.out.println(label + " FALHOU (" + sizeBytes + " bytes / " + (sizeBytes / 1024) + "KB)");
+        // leitura do arquivo
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.length() == 0) continue;
+                String[] parts = line.split("\\s+");
+                if (parts.length < 2) continue;
+                String label = parts[0];
+                String sizeToken = parts[1];
+                int sizeBytes = parseSizeToken(sizeToken);
+                boolean ok = buddy.allocate(label, sizeBytes);
+                if (ok) {
+                    System.out.println(label + " alocado (" + sizeBytes + " bytes / " + (sizeBytes / 1024) + "KB)");
+                } else {
+                    System.out.println(label + " FALHOU (" + sizeBytes + " bytes / " + (sizeBytes / 1024) + "KB)");
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("Erro ao ler arquivo: " + e.getMessage());
+            return;
         }
 
-        // report final para o alocador
         buddy.printReport();
+    }
+
+
+    private static int parseSizeToken(String tok) {
+        tok = tok.trim().toUpperCase();
+        try {
+            if (tok.endsWith("KB")) {
+                String num = tok.substring(0, tok.length() - 2);
+                return Integer.parseInt(num) * 1024;
+            } else if (tok.endsWith("K")) {
+                String num = tok.substring(0, tok.length() - 1);
+                return Integer.parseInt(num) * 1024;
+            } else if (tok.endsWith("MB")) {
+                String num = tok.substring(0, tok.length() - 2);
+                return Integer.parseInt(num) * 1024 * 1024;
+            } else if (tok.endsWith("M")) {
+                String num = tok.substring(0, tok.length() - 1);
+                return Integer.parseInt(num) * 1024 * 1024;
+            } else {
+                return Integer.parseInt(tok);
+            }
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
     }
 }

@@ -1,124 +1,218 @@
-public class Buddy{
+public class Buddy {
 
-    public static final int TOTAL_MEM = 4 * 1024 * 1024;    // 4MB para a memoria toatl
-    public static final int MIN_BLOCK = 1024;               // 1KB bloco minimo esturutado
-    public static final int MAX_ORDER = 12;                 // 4MB = 2^12 KB maximo 
+    public static final int TOTAL_BYTES = 4 * 1024 * 1024; // 4MB
+    public static final int MIN_BLOCK = 1024;              // 1KB
+    public static final int MAX_ORDER = 12;                // 1KB * 2^12 = 4MB
 
-    // estrutura interna 
-    
-    private Bloco[] freeList = new Bloco[1000];
-    private int freeCount = 0;
+    // cabeças das listas livres por ordem evitando lenght
+    private Bloco[] freeHeads = new Bloco[MAX_ORDER + 1];
 
-    // Lista de blocos ocupados
-    private Bloco[] used = new Bloco[1000];
-    private int usedCount = 0;
+    // lista simples para blocos alocados (controle manual)
+    // capacidade fixa; gerenciamos com allocatedCount
+    private Bloco[] allocated = new Bloco[3000];
+    private int allocatedCount = 0;
 
     public Buddy() {
-        // insere bloco inicial de 4MB (ordem máxima)
-        freeList[0] = new Bloco(0, MAX_ORDER);
-        freeCount = 1;
+        // inicializa com um bloco livre único do tamanho máximo
+        for (int i = 0; i <= MAX_ORDER; i = i + 1) {
+            freeHeads[i] = null;
+        }
+        Bloco initial = new Bloco(0, MAX_ORDER);
+        initial.free = true;
+        initial.owner = "";
+        initial.next = null;
+        freeHeads[MAX_ORDER] = initial;
     }
 
-    // função para converter o tamanho para potencia de 2
-    private int sizeToOrder(int size) {
+    private int requiredOrder(int sizeBytes) {
         int ord = 0;
-        int bloco = MIN_BLOCK;
-
-        while (bloco < size) {
-            bloco = bloco * 2;
+        int blockSize = MIN_BLOCK; // size for order 0
+        while (blockSize < sizeBytes && ord < MAX_ORDER) {
+            blockSize = blockSize << 1; // *2
             ord = ord + 1;
         }
         return ord;
     }
-    
 
-    // first fit
-    public boolean allocate(String name, int size) {
-
-        int target = sizeToOrder(size);
-
-        int index = acharBlocoLivre(target);
-        if (index < 0) return false;  // erro de falta de espaço sem exception
-
-        Bloco b = freeList[index];
-        removeFree(index);
-
-        while (b.order > target) {
-            b = splitBloco(b);
-        }
-
-        b.free = false;
-        b.owner = name;
-        used[usedCount] = b;
-        usedCount++;
-
-        return true;
+    private Bloco popFreeHead(int ord) {
+        Bloco head = freeHeads[ord];
+        if (head == null) return null;
+        freeHeads[ord] = head.next;
+        head.next = null;
+        return head;
+    }
+    private void pushFreeHead(int ord, Bloco b) {
+        b.next = freeHeads[ord];
+        freeHeads[ord] = b;
     }
 
-    // localiza o bloco adequado para o first-fit
-    private int acharBlocoLivre(int needOrder) {
+    private Bloco findAndSplit(int ordNeeded) {
+        int ord = ordNeeded;
+        while (ord <= MAX_ORDER) {
+            if (freeHeads[ord] != null) break;
+            ord = ord + 1;
+        }
+        if (ord > MAX_ORDER) return null;
+        Bloco b = popFreeHead(ord);
+        while (ord > ordNeeded) {
+            ord = ord - 1;
+            int size = MIN_BLOCK << ord;
+            Bloco left = new Bloco(b.offset, ord);
+            Bloco right = new Bloco(b.offset + size, ord);
+            pushFreeHead(ord, right);
+            b = left;
+        }
+        return b;
+    }
+
+    // alocar: retorna true se alocou, false se falhar
+    public boolean allocate(String label, int sizeBytes) {
+        if (sizeBytes <= 0 || sizeBytes > TOTAL_BYTES) return false;
+        int ordNeeded = requiredOrder(sizeBytes);
+        Bloco b = findAndSplit(ordNeeded);
+        if (b == null) return false;
+        b.free = false;
+        b.owner = label;
+        b.requestedSize = sizeBytes;
+        b.next = null;
+        if (allocatedCount < 3000) {
+            allocated[allocatedCount] = b;
+            allocatedCount = allocatedCount + 1;
+            return true;
+        } else {
+            b.free = true;
+            b.owner = "";
+            pushFreeHead(b.order, b);
+            return false;
+        }
+    }
+
+    // busca índice do bloco alocado pelo rótulo (retorna -1 se não encontrado)
+    private int findAllocatedIndexByLabel(String label) {
         int i = 0;
-        while (i < freeCount) {
-            if (freeList[i].order >= needOrder) return i;
+        while (i < allocatedCount) {
+            Bloco b = allocated[i];
+            if (b != null && b.owner != null && b.owner.equals(label)) {
+                return i;
+            }
             i = i + 1;
         }
         return -1;
     }
 
-    // split buddy
-    private Bloco splitBloco(Bloco b) {
-
-        int newOrd = b.order - 1;
-        int half = (1 << newOrd) * MIN_BLOCK;
-
-        Bloco b1 = new Bloco(b.offset, newOrd);
-        Bloco b2 = new Bloco(b.offset + half, newOrd);
-
-        insertFree(b1);
-        insertFree(b2);
-
-        return b1; // devolve um pedaço para continuar alocação
+    // remove o bloco alocado do array allocated mantendo packed array
+    private void removeAllocatedAt(int idx) {
+        if (idx < 0 || idx >= allocatedCount) return;
+        // move último para a posição idx
+        allocatedCount = allocatedCount - 1;
+        allocated[idx] = allocated[allocatedCount];
+        allocated[allocatedCount] = null;
     }
 
-    // inserir e remover do free list
-    private void insertFree(Bloco b) {
-        freeList[freeCount] = b;
-        freeCount++;
+    public boolean free(String label) {
+        int idx = findAllocatedIndexByLabel(label);
+        if (idx == -1) return false;
+        Bloco b = allocated[idx];
+
+        b.free = true;
+        b.owner = "";
+        int ord = b.order;
+        int off = b.offset;
+
+        while (ord < MAX_ORDER) {
+            int blockSize = MIN_BLOCK << ord;
+            int buddyOffset = off ^ blockSize;
+
+            Bloco prev = null;
+            Bloco cur = freeHeads[ord];
+            boolean buddyFound = false;
+            while (cur != null) {
+                if (cur.offset == buddyOffset) {
+                    // found buddy; remove cur from free list
+                    if (prev == null) {
+                        freeHeads[ord] = cur.next;
+                    } else {
+                        prev.next = cur.next;
+                    }
+                    cur.next = null;
+                    buddyFound = true;
+                    break;
+                }
+                prev = cur;
+                cur = cur.next;
+            }
+            if (!buddyFound) {
+                // cannot merge, insert b into free list and stop
+                b.order = ord;
+                b.next = null;
+                pushFreeHead(ord, b);
+                removeAllocatedAt(idx);
+                return true;
+            } else {
+                // merge b with buddy cur into parent of order+1
+                int mergedOffset = (off < buddyOffset) ? off : buddyOffset;
+                off = mergedOffset;
+                ord = ord + 1;
+                // create new block representing merged block and continue loop
+                b = new Bloco(off, ord);
+                b.free = true;
+                b.owner = "";
+                b.requestedSize = 0;
+                b.next = null;
+            }
+        }
+        b.order = ord;
+        b.offset = off;
+        b.free = true;
+        b.owner = "";
+        b.next = null;
+        pushFreeHead(ord, b);
+        removeAllocatedAt(idx);
+        return true;
     }
 
-    private void removeFree(int idx) {
-        freeCount = freeCount - 1;
-        freeList[idx] = freeList[freeCount];
-    }
-
-    // report para relatorio - estrutura simples com texto
+    // imprime relatório: área livre, blocos livres fragmentados, blocos alocados
     public void printReport() {
+        System.out.println("=== Relatório da memória (Buddy) ===");
+        // total livre
+        long totalFree = 0;
+        System.out.println("-- Blocos livres por ordem:");
+        int ord = 0;
+        while (ord <= MAX_ORDER) {
+            int count = 0;
+            Bloco cur = freeHeads[ord];
+            while (cur != null) {
+                count = count + 1;
+                totalFree = totalFree + (MIN_BLOCK << ord);
+                cur = cur.next;
+            }
+            if (count > 0) {
+                System.out.println("  Ordem " + ord + " (tamanho " + (MIN_BLOCK << ord) + " bytes): " + count + " bloco(s)");
+            }
+            ord = ord + 1;
+        }
+        System.out.println("Área total livre: " + totalFree + " bytes (" + (totalFree / 1024) + " KB)");
 
+        // listar blocos livres (tamanho e posição)
+        System.out.println("-- Lista detalhada de blocos livres (offset, tamanho):");
+        ord = 0;
+        while (ord <= MAX_ORDER) {
+            Bloco cur = freeHeads[ord];
+            while (cur != null) {
+                System.out.println("  offset=" + cur.offset + " size=" + (MIN_BLOCK << ord) + " bytes (ord=" + ord + ")");
+                cur = cur.next;
+            }
+            ord = ord + 1;
+        }
+
+        // listar blocos alocados
+        System.out.println("-- Blocos alocados:");
         int i = 0;
-        int totalLivre = 0;
-
-        System.out.println("\n ======BLOCOS LIVRES======");
-        while (i < freeCount){
-            Bloco b = freeList[i];
-            System.out.println("Offset: " + b.offset + "| Tamanho: " + b.getSize(MIN_BLOCK));
-            totalLivre = totalLivre + b.getSize(MIN_BLOCK);
-            i = i+1;
-
+        while (i < allocatedCount) {
+            Bloco b = allocated[i];
+            System.out.println("  " + b.owner + " | requested=" + b.requestedSize + " bytes | blockSize=" + (MIN_BLOCK << b.order) + " bytes | offset=" + b.offset + " | ord=" + b.order);
+            i = i + 1;
         }
-
-        System.out.println("\nTotal Livre: " + totalLivre + " bytes");
-        System.out.println("Fragmentação: " + freeCount + " blocos");
-
-        System.out.println("\n=======BLOCOS OCUPADOS======");
-        int j = 0;
-        while (j < usedCount) {
-            Bloco b = used[j];
-            System.out.println(
-                    "["+b.owner+"] real="+(b.getSize(MIN_BLOCK))+
-                            " bloco="+b.getSize(MIN_BLOCK)+
-                            " offset="+b.offset
-            );
-            j = j + 1;
-        }
+        System.out.println("=== Fim do relatório ===");
     }
 }

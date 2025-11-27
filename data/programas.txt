@@ -1,6 +1,3 @@
-# 20 programas para testes do alocador
-# Formato: PROGRAMA TAMANHO_EM_KB
-
 A 120
 B 300
 C 512
