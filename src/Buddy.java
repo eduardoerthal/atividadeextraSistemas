@@ -128,7 +128,6 @@ public class Buddy {
             boolean buddyFound = false;
             while (cur != null) {
                 if (cur.offset == buddyOffset) {
-                    // found buddy; remove cur from free list
                     if (prev == null) {
                         freeHeads[ord] = cur.next;
                     } else {
@@ -142,18 +141,15 @@ public class Buddy {
                 cur = cur.next;
             }
             if (!buddyFound) {
-                // cannot merge, insert b into free list and stop
                 b.order = ord;
                 b.next = null;
                 pushFreeHead(ord, b);
                 removeAllocatedAt(idx);
                 return true;
             } else {
-                // merge b with buddy cur into parent of order+1
                 int mergedOffset = (off < buddyOffset) ? off : buddyOffset;
                 off = mergedOffset;
                 ord = ord + 1;
-                // create new block representing merged block and continue loop
                 b = new Bloco(off, ord);
                 b.free = true;
                 b.owner = "";
